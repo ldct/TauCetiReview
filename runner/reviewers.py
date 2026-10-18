@@ -154,7 +154,14 @@ def reviewer_env(provider, keys, subscription=False):
     if user:
         env.update(USER=user, LOGNAME=os.environ.get("LOGNAME") or user)
     if provider in ("claude", "sonnet"):
-        if subscription:
+        token = (os.environ.get("CLAUDE_CODE_OAUTH_TOKEN") or "").strip() if subscription else ""
+        if token:
+            # A long-lived `claude setup-token` the operator supplied for unattended runs. Prefer it
+            # over copying ~/.claude/.credentials.json: that copy is an ~8-hour access token, and a
+            # worker's mirror of it carries no refresh token, so once it expires every rubric fails
+            # with "401 OAuth access token has expired" until someone logs in again by hand.
+            env["CLAUDE_CODE_OAUTH_TOKEN"] = token
+        elif subscription:
             # Seed only the OAuth credential into the clean HOME; no personal CLAUDE.md/skills.
             src = os.path.expanduser("~/.claude/.credentials.json")
             if os.path.exists(src):
