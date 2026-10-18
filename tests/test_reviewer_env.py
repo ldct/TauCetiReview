@@ -36,6 +36,43 @@ def test_reviewer_env_keeps_public_login_identity():
     reviewers.cleanup_rev_home(isolated_home)
 
 
+def test_claude_subscription_prefers_a_supplied_oauth_token():
+    # A worker's mirrored ~/.claude/.credentials.json is an ~8-hour access token with no refresh
+    # token; on 2026-10-18 it expired mid-round and every later rubric failed with a 401. The
+    # long-lived setup-token the operator supplies must reach the reviewer instead.
+    old = os.environ.copy()
+    try:
+        with tempfile.TemporaryDirectory() as real_home:
+            creds = pathlib.Path(real_home) / ".claude" / ".credentials.json"
+            creds.parent.mkdir()
+            creds.write_text('{"claudeAiOauth": {"accessToken": "short-lived"}}')
+            os.environ.clear()
+            os.environ.update(HOME=real_home, PATH="/usr/bin", CLAUDE_CODE_OAUTH_TOKEN=" sk-ant-oat01-x\n",
+                              ANTHROPIC_API_KEY="must-not-leak")
+            env, isolated_home = reviewers.reviewer_env("claude", {}, subscription=True)
+            assert env["CLAUDE_CODE_OAUTH_TOKEN"] == "sk-ant-oat01-x"
+            assert env["HOME"] == isolated_home
+            assert not (pathlib.Path(isolated_home) / ".claude" / ".credentials.json").exists()
+            assert "ANTHROPIC_API_KEY" not in env
+            reviewers.cleanup_rev_home(isolated_home)
+
+            # Without the token the clean-room copy of the login file is unchanged.
+            del os.environ["CLAUDE_CODE_OAUTH_TOKEN"]
+            env, isolated_home = reviewers.reviewer_env("claude", {}, subscription=True)
+            assert "CLAUDE_CODE_OAUTH_TOKEN" not in env
+            assert (pathlib.Path(isolated_home) / ".claude" / ".credentials.json").read_text() == creds.read_text()
+            reviewers.cleanup_rev_home(isolated_home)
+
+            # API mode never forwards the subscription token.
+            os.environ["CLAUDE_CODE_OAUTH_TOKEN"] = "sk-ant-oat01-x"
+            env, isolated_home = reviewers.reviewer_env("claude", {"anthropic": "k"})
+            assert "CLAUDE_CODE_OAUTH_TOKEN" not in env and env["ANTHROPIC_API_KEY"] == "k"
+            reviewers.cleanup_rev_home(isolated_home)
+    finally:
+        os.environ.clear()
+        os.environ.update(old)
+
+
 def test_logname_is_a_user_fallback():
     old = os.environ.copy()
     try:
