@@ -153,6 +153,12 @@ def reviewer_env(provider, keys, subscription=False):
     # On macOS, Claude Code's login-Keychain item is addressed by the login user. HOME alone is
     # insufficient: omitting USER makes the CLI report "Not logged in" even though the fallback below
     # correctly restores the real HOME. These identity strings are non-secret and carry no config.
+    # Keep the caller's temp directory. A worker sets TMPDIR to persistent storage because its service
+    # /tmp can be deleted under a running round (systemd PrivateTmp on a manager restart); dropping it
+    # sent Claude back to /tmp/claude-<uid> and failed rubrics with ENOENT. A path, not a credential.
+    tmpdir = os.environ.get("TMPDIR")
+    if tmpdir and os.path.isabs(tmpdir):
+        env["TMPDIR"] = tmpdir
     user = os.environ.get("USER") or os.environ.get("LOGNAME")
     if user:
         env.update(USER=user, LOGNAME=os.environ.get("LOGNAME") or user)
