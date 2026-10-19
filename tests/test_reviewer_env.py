@@ -73,6 +73,23 @@ def test_claude_subscription_prefers_a_supplied_oauth_token():
         os.environ.update(old)
 
 
+def test_reviewer_env_keeps_an_absolute_tmpdir():
+    old = os.environ.copy()
+    try:
+        with tempfile.TemporaryDirectory() as home:
+            for value, want in (("/persistent/tmp", "/persistent/tmp"), ("relative", None), (None, None)):
+                os.environ.clear()
+                os.environ.update(HOME=home, PATH="/usr/bin")
+                if value:
+                    os.environ["TMPDIR"] = value
+                env, isolated_home = reviewers.reviewer_env("claude", {"anthropic": "k"})
+                assert env.get("TMPDIR") == want, (value, env.get("TMPDIR"))
+                reviewers.cleanup_rev_home(isolated_home)
+    finally:
+        os.environ.clear()
+        os.environ.update(old)
+
+
 def test_logname_is_a_user_fallback():
     old = os.environ.copy()
     try:
