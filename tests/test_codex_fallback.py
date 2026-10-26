@@ -103,6 +103,21 @@ def test_run_codex_survives_malformed_payloads():
     assert not reviewers.codex_model_unavailable(out2)  # no status, no message -> not a model problem
 
 
+def test_plain_text_rate_limit_is_classified():
+    # Observed on codex-cli 0.160: a throttled turn fails with prose, not a JSON payload. It must reach
+    # error_kind as a rate limit (a provider-down kind that ends the round), never as unknown_error.
+    stdout = (
+        '{"type":"thread.started","thread_id":"019f-abc"}\n{"type":"turn.started"}\n'
+        '{"type":"error","message":"exceeded retry limit, last status: 429 Too Many Requests"}\n'
+        '{"type":"turn.failed","error":{"message":"exceeded retry limit, last status: 429 Too Many Requests"}}\n'
+    )
+    out = _run_codex_with_stdout(stdout)
+    assert out.get("error_status") == 429, out.get("error_status")
+    assert "Too Many Requests" in (out.get("error_message") or "")
+    assert not reviewers.codex_model_unavailable(out)
+    assert review.error_kind({**out, "verdict_obj": None}) == "rate_limited", review.error_kind(out)
+
+
 # ----- codex_model_unavailable: needs BOTH a model message AND a non-transient status -----
 
 def test_status_alone_is_not_enough():

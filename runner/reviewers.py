@@ -587,6 +587,16 @@ def run_codex(prompt, cwd, model, env):
         if isinstance(msg, str):
             out["error_message"] = msg
         break  # first well-formed dict payload wins
+    else:
+        # codex also fails in plain prose ("exceeded retry limit, last status: 429 Too Many Requests")
+        # with no JSON payload at all. Keep that text as the error message, and its status when it
+        # names one, so error_kind can see a rate limit rather than filing it as unknown_error.
+        plain = next((p for p in (fail_payload, err_payload) if isinstance(p, str) and p.strip()), None)
+        if plain is not None:
+            out["error_message"] = plain.strip()[:500]
+            m = re.search(r"\bstatus:?\s*(\d{3})\b", plain)
+            if m:
+                out["error_status"] = int(m.group(1))
     # Surface why codex produced no usable answer, so failures are diagnosable not silent.
     if r.returncode != 0 or not text:
         out.update(event_types=events, error_events=errors[:5], raw_stdout=r.stdout[-3000:])
