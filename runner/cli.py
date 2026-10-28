@@ -378,6 +378,35 @@ def fetch_thread_replies(repo, pr):
 SCOREBOARD_MARKER = "<!--tauceti-scoreboard-->"
 META_RE = re.compile(r"<!--tauceti-meta:v1 (.*?)-->", re.S)
 
+# merge_from_scoreboard's blind-approval test (TauCetiReview#195), duplicated for the reason above:
+# CI no longer counts an approving board whose rubric row says the judge could not inspect the
+# workspace, so a completed review must not be reused from one. tests/test_blind_handoff.py pins the
+# copies together.
+BLIND_RUBRICS = {"correctness", "reuse", "scope", "attribution", "api-design",
+                 "generality", "placement", "naming", "documentation", "proof-quality"}
+TABLE_ROW_RE = re.compile(r"^\|[^|]*\|\s*\[?([a-z0-9-]+)\]?[^|]*\|\s*([^|]+?)\s*\|", re.M)
+_BLIND_TOOL = (r"(?:sandbox|command runner|command tool|read-only (?:command|shell|tool|search)s?"
+               r"|read (?:command|tool)s?|shell|filesystem tools?|search tools?)")
+_BLIND_BAD = r"(?:fail\w*|error|unavailable|could not (?:start|run|initiali[sz]e)|did not start|prevented)"
+_BLIND_PLACE = r"(?:the|its|this) (?:checkout|runner|workspace|sandbox)"
+BLIND_ROW_RE = re.compile(
+    rf"\b{_BLIND_TOOL}\b[^|.;]{{0,60}}?\b{_BLIND_BAD}"
+    r"|\b(?:inspection|verification|searches|search|cross-checks?|comparison|grep)\b[^|.;]{0,40}?"
+    r"\b(?:was|were) (?:unavailable|prevented|not possible)"
+    r"|\b(?:searches|inspection)\b[^|.;]{0,20}?could not (?:run|execute|be (?:run|performed))"
+    rf"|mathlib[^|.;]{{0,60}}?\b(?:not (?:in|present in|available in|checked out in) {_BLIND_PLACE}"
+    rf"|absent from {_BLIND_PLACE}|missing from {_BLIND_PLACE}|could not be (?:searched|grepped))"
+    r"|mathlib (?:checkout|source|sources) (?:was|were|is) (?:absent|missing|not present)",
+    re.I)
+
+
+def is_blind_approval(body, states):
+    """True when some rubric row reads as blind and nothing blocks; prose only withholds approval."""
+    blind = any((m := TABLE_ROW_RE.match(row)) and m.group(1) in BLIND_RUBRICS and BLIND_ROW_RE.search(row)
+                for row in (body or "").splitlines())
+    return blind and not any(s in ("blocking_request", "blocking_block") for s in (states or {}).values())
+
+
 
 def write_review_result(head, changed):
     """A trusted per-invocation outcome for the driving worker; no API requests."""
@@ -413,7 +442,8 @@ def latest_scoreboard(comments):
         if best is None or key > best[0]:
             best = (key, {"comment_id": c.get("id"), "by": (c.get("user") or {}).get("login"),
                           "head_sha": meta["head_sha"], "states": meta["states"],
-                          **{k: meta[k] for k in ("replies_through", "rubrics_version") if k in meta}})
+                          **{k: meta[k] for k in ("replies_through", "rubrics_version") if k in meta},
+                          **({"blind": True} if is_blind_approval(body, meta["states"]) else {})})
     return best[1] if best else None
 
 

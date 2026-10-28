@@ -268,7 +268,7 @@ def thread_action_rubrics(candidates, ran, state_map, head):
 def can_reuse_completed_review(board, head, candidates, replies, pr_state):
     """Published completion survives an empty worker store; local repairs still run."""
     if (not board or board.get("mode") == "init" or board.get("head_sha") != head
-            or not candidates or not isinstance(replies, dict)):
+            or board.get("blind") or not candidates or not isinstance(replies, dict)):
         return False
     states = board.get("states") or {}
     current = [states.get(r) for r in candidates]
